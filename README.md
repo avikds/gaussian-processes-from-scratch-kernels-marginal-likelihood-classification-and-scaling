@@ -18,6 +18,7 @@ python scaffold.py
 - [x] **6.** is_valid_gram
 - [x] **7.** sample_gp_prior
 - [x] **8.** gp_condition
+- [x] **9.** gp_predict
 
 ---
 

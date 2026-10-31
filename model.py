@@ -519,3 +519,85 @@ def gp_condition(X, f, Xs, kernel, jitter=1e-10):
 
     return mu, cov
 
+# Step 9 - gp_predict
+def gp_predict(X, y, Xs, kernel, noise_var):
+    """
+    Compute the noisy-observation Gaussian Process posterior
+    using Cholesky factorization.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D) or (N,)
+        Training inputs.
+    y : array-like, shape (N,)
+        Noisy observed target values.
+    Xs : array-like, shape (N_star, D) or (N_star,)
+        Test inputs.
+    kernel : callable
+        Kernel function returning the Gram matrix.
+    noise_var : float
+        Observation noise variance.
+
+    Returns
+    -------
+    mu : ndarray, shape (N_star,)
+        Predictive posterior mean.
+    var : ndarray, shape (N_star,)
+        Predictive latent function variance.
+    """
+
+    # Convert inputs into 2D arrays.
+    X = as_2d(X)
+    Xs = as_2d(Xs)
+
+    # Convert observations into a 1D array.
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate input dimensions.
+    if X.shape[1] != Xs.shape[1]:
+        raise ValueError("X and Xs must have the same number of features.")
+
+    if len(y) != X.shape[0]:
+        raise ValueError("The number of observations must match X.")
+
+    # Validate observation noise variance.
+    if noise_var < 0:
+        raise ValueError("noise_var must be non-negative.")
+
+    # Number of training observations.
+    N = X.shape[0]
+
+    # Step 1: Compute the noisy training covariance matrix.
+    K_sigma = kernel(X, X) + noise_var * np.eye(N)
+
+    # Step 2: Compute the lower Cholesky factor.
+    L = np.linalg.cholesky(K_sigma)
+
+    # Step 3: Solve L * z = y.
+    z = solve_triangular(L, y, lower=True)
+
+    # Step 4: Solve L.T * alpha = z.
+    # This gives alpha = K_sigma^(-1) * y without explicitly
+    # computing the matrix inverse.
+    alpha = solve_triangular(L.T, z, lower=False)
+
+    # Step 5: Compute the cross-covariance matrix.
+    Ks = kernel(X, Xs)
+
+    # Step 6: Compute the predictive posterior mean.
+    mu = Ks.T @ alpha
+
+    # Step 7: Solve L * v = Ks.
+    v = solve_triangular(L, Ks, lower=True)
+
+    # Step 8: Compute the test covariance matrix.
+    Kss = kernel(Xs, Xs)
+
+    # Step 9: Compute the predictive latent variance.
+    var = np.diag(Kss) - np.sum(v ** 2, axis=0)
+
+    # Clip tiny negative values caused by floating-point rounding.
+    var = np.maximum(var, 0.0)
+
+    return mu, var
+
