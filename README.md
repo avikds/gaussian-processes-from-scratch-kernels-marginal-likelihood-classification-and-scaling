@@ -19,6 +19,7 @@ python scaffold.py
 - [x] **7.** sample_gp_prior
 - [x] **8.** gp_condition
 - [x] **9.** gp_predict
+- [x] **10.** log_marginal_likelihood
 
 ---
 

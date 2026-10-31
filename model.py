@@ -601,3 +601,76 @@ def gp_predict(X, y, Xs, kernel, noise_var):
 
     return mu, var
 
+# Step 10 - log_marginal_likelihood
+def log_marginal_likelihood(X, y, kernel, noise_var):
+    """
+    Compute the Gaussian Process log marginal likelihood
+    using Cholesky factorization.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D) or (N,)
+        Training inputs.
+    y : array-like, shape (N,)
+        Observed target values.
+    kernel : callable
+        Kernel function returning the Gram matrix.
+    noise_var : float
+        Observation noise variance.
+
+    Returns
+    -------
+    result : dict
+        Dictionary containing:
+        - data_fit
+        - complexity
+        - constant
+        - lml
+    """
+
+    # Convert inputs into 2D arrays.
+    X = as_2d(X)
+
+    # Convert observations into a 1D array.
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate input dimensions.
+    if len(y) != X.shape[0]:
+        raise ValueError("The number of observations must match X.")
+
+    if noise_var < 0:
+        raise ValueError("noise_var must be non-negative.")
+
+    # Number of observations.
+    N = X.shape[0]
+
+    # Step 1: Construct the noisy covariance matrix.
+    K_sigma = kernel(X, X) + noise_var * np.eye(N)
+
+    # Step 2: Compute the lower Cholesky factor.
+    L = np.linalg.cholesky(K_sigma)
+
+    # Step 3: Compute alpha = K_sigma^(-1) @ y
+    # using Cholesky-based linear system solving.
+    alpha = cho_solve((L, True), y)
+
+    # Step 4: Calculate the data-fit term.
+    data_fit = -0.5 * float(y @ alpha)
+
+    # Step 5: Calculate the model-complexity term.
+    complexity = -float(np.sum(np.log(np.diag(L))))
+
+    # Step 6: Calculate the Gaussian normalization constant.
+    constant = -0.5 * N * np.log(2.0 * np.pi)
+
+    # Step 7: Calculate the total log marginal likelihood.
+    lml = data_fit + complexity + constant
+
+    # Return all terms as Python floats.
+    return {
+        "data_fit": float(data_fit),
+        "complexity": float(complexity),
+        "constant": float(constant),
+        "lml": float(lml)
+    }
+
