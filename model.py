@@ -1068,3 +1068,98 @@ def lml_and_grad(theta, X, y, kernel_and_grads):
 
     return float(lml), grad
 
+# Step 16 - maximize_lml
+def maximize_lml(theta0, X, y, kernel_and_grads, bound=5.0, max_iter=500):
+    """
+    Maximize the Gaussian Process log marginal likelihood
+    using L-BFGS-B optimization.
+
+    Parameters
+    ----------
+    theta0 : array-like
+        Initial log hyperparameters.
+        The last element represents log noise standard deviation.
+
+    X : array-like
+        Training inputs.
+
+    y : array-like
+        Observed target values.
+
+    kernel_and_grads : callable
+        Function returning the kernel matrix and its analytical
+        gradients.
+
+    bound : float, default=5.0
+        Absolute bound applied to each log hyperparameter.
+
+    max_iter : int, default=500
+        Maximum number of optimization iterations.
+
+    Returns
+    -------
+    theta : ndarray
+        Optimized log hyperparameters.
+
+    lml : float
+        Maximized log marginal likelihood.
+    """
+
+    # Convert initial hyperparameters into a NumPy array.
+    theta0 = np.asarray(theta0, dtype=float)
+
+    if theta0.ndim != 1 or theta0.size == 0:
+        raise ValueError("theta0 must be a non-empty 1D array.")
+
+    if not np.all(np.isfinite(theta0)):
+        raise ValueError("theta0 must contain finite values.")
+
+    if not np.isfinite(bound) or bound <= 0:
+        raise ValueError("bound must be strictly positive.")
+
+    if max_iter <= 0:
+        raise ValueError("max_iter must be a positive integer.")
+
+    # Objective function for minimization.
+    # We minimize the negative log marginal likelihood.
+    def objective(theta):
+        try:
+            # Compute the log marginal likelihood and its gradient.
+            lml, grad = lml_and_grad(
+                theta,
+                X,
+                y,
+                kernel_and_grads
+            )
+
+            # Convert the maximization problem into minimization.
+            loss = -lml
+            grad = -np.asarray(grad, dtype=float)
+
+            # Guard against invalid numerical results.
+            if not np.isfinite(loss) or not np.all(np.isfinite(grad)):
+                return 1e10, np.zeros_like(theta)
+
+            return float(loss), grad
+
+        except np.linalg.LinAlgError:
+            # If Cholesky factorization fails, return a large penalty
+            # and a zero gradient so the optimizer can backtrack.
+            return 1e10, np.zeros_like(theta)
+
+    # Apply identical bounds to every log hyperparameter.
+    bounds = [(-bound, bound)] * len(theta0)
+
+    # Run L-BFGS-B optimization with analytical gradients.
+    res = minimize(
+        objective,
+        theta0,
+        method="L-BFGS-B",
+        jac=True,
+        bounds=bounds,
+        options={"maxiter": max_iter}
+    )
+
+    # Return optimized hyperparameters and maximum LML.
+    return res.x, float(-res.fun)
+
