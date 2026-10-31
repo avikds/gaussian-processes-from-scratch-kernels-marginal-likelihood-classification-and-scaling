@@ -812,3 +812,96 @@ def nadaraya_watson(X, y, Xs, bandwidth):
 
     return predictions
 
+# Step 13 - bayes_linreg_predict
+def bayes_linreg_predict(Phi, y, Phi_star, Sigma_w, noise_var):
+    """
+    Compute the weight-space posterior predictive distribution
+    of Bayesian Linear Regression.
+
+    Parameters
+    ----------
+    Phi : array-like, shape (N, D)
+        Training design matrix.
+    y : array-like, shape (N,)
+        Observed target values.
+    Phi_star : array-like, shape (N_star, D)
+        Test design matrix.
+    Sigma_w : array-like, shape (D, D)
+        Prior covariance matrix of the weights.
+    noise_var : float
+        Observation noise variance.
+
+    Returns
+    -------
+    mean : ndarray, shape (N_star,)
+        Posterior predictive mean.
+    var : ndarray, shape (N_star,)
+        Posterior predictive latent variance.
+    """
+
+    # Convert input matrices into NumPy arrays.
+    Phi = as_2d(Phi)
+    Phi_star = as_2d(Phi_star)
+
+    y = np.asarray(y, dtype=float).reshape(-1)
+    Sigma_w = np.asarray(Sigma_w, dtype=float)
+
+    # Validate dimensions.
+    N, D = Phi.shape
+
+    if len(y) != N:
+        raise ValueError("The number of target values must match Phi.")
+
+    if Phi_star.shape[1] != D:
+        raise ValueError("Phi and Phi_star must have the same number of features.")
+
+    if Sigma_w.shape != (D, D):
+        raise ValueError("Sigma_w must have shape (D, D).")
+
+    if not np.all(np.isfinite(Phi)) or not np.all(np.isfinite(Phi_star)):
+        raise ValueError("Design matrices must contain finite values.")
+
+    if not np.all(np.isfinite(y)) or not np.all(np.isfinite(Sigma_w)):
+        raise ValueError("y and Sigma_w must contain finite values.")
+
+    if not np.isfinite(noise_var) or noise_var <= 0:
+        raise ValueError("noise_var must be strictly positive.")
+
+    # Ensure the prior covariance matrix is symmetric.
+    if not np.allclose(Sigma_w, Sigma_w.T, atol=1e-10, rtol=0.0):
+        raise ValueError("Sigma_w must be symmetric.")
+
+    # Step 1: Compute the inverse of the prior covariance matrix.
+    # This involves only a D x D matrix.
+    Sigma_w_inv = np.linalg.solve(Sigma_w, np.eye(D))
+
+    # Step 2: Compute the posterior precision matrix A.
+    A = (Phi.T @ Phi) / noise_var + Sigma_w_inv
+
+    # Remove tiny numerical asymmetries.
+    A = 0.5 * (A + A.T)
+
+    # Step 3: Compute the lower Cholesky factor of A.
+    L = np.linalg.cholesky(A)
+
+    # Step 4: Compute the right-hand side for the posterior weights.
+    b = (Phi.T @ y) / noise_var
+
+    # Step 5: Solve A * w_mean = b using Cholesky factorization.
+    w_mean = cho_solve((L, True), b)
+
+    # Step 6: Compute the posterior predictive mean.
+    mean = Phi_star @ w_mean
+
+    # Step 7: Solve L * V = Phi_star.T.
+    V = solve_triangular(
+        L,
+        Phi_star.T,
+        lower=True
+    )
+
+    # Step 8: Compute the posterior predictive latent variance.
+    var = np.sum(V ** 2, axis=0)
+
+    return mean, var
+

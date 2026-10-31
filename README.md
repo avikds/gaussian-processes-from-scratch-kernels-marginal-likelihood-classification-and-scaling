@@ -22,6 +22,7 @@ python scaffold.py
 - [x] **10.** log_marginal_likelihood
 - [x] **11.** predictive_scores
 - [x] **12.** nadaraya_watson
+- [x] **13.** bayes_linreg_predict
 
 ---
 
