@@ -26,6 +26,7 @@ python scaffold.py
 - [x] **14.** se_kernel_and_grads
 - [x] **15.** lml_and_grad
 - [x] **16.** maximize_lml
+- [x] **17.** lml_surface
 
 ---
 

@@ -1163,3 +1163,109 @@ def maximize_lml(theta0, X, y, kernel_and_grads, bound=5.0, max_iter=500):
     # Return optimized hyperparameters and maximum LML.
     return res.x, float(-res.fun)
 
+# Step 17 - lml_surface
+# Seven observations from Figure 17.9.
+FIG179_X = [-4.99, -3.82, 0.44, 1.04, 1.26, 2.02, 3.21]
+FIG179_Y = [-0.28, -0.77, -0.89, -0.64, -0.47, -1.07, -1.94]
+
+
+def lml_surface(X, y, length_scales, noise_stds, signal_var=1.0):
+    """
+    Compute the Gaussian Process log marginal likelihood surface
+    for different length scales and observation noise levels.
+
+    Identify all interior local maxima that are strictly greater
+    than their eight neighbouring grid points.
+
+    Parameters
+    ----------
+    X : array-like
+        Training inputs.
+    y : array-like
+        Observed target values.
+    length_scales : array-like
+        Length scale values (columns).
+    noise_stds : array-like
+        Noise standard deviation values (rows).
+    signal_var : float
+        Fixed signal variance.
+
+    Returns
+    -------
+    G : ndarray
+        Log marginal likelihood surface.
+    maxima : list
+        Interior local maxima as (i, j) tuples in row-major order.
+    """
+
+    # Convert parameter grids to NumPy arrays.
+    length_scales = np.asarray(length_scales, dtype=float).reshape(-1)
+    noise_stds = np.asarray(noise_stds, dtype=float).reshape(-1)
+
+    # Validate inputs.
+    if length_scales.size == 0 or noise_stds.size == 0:
+        raise ValueError("Parameter grids must not be empty.")
+
+    if np.any(~np.isfinite(length_scales)) or np.any(length_scales <= 0):
+        raise ValueError("Length scales must be finite and positive.")
+
+    if np.any(~np.isfinite(noise_stds)) or np.any(noise_stds < 0):
+        raise ValueError("Noise standard deviations must be finite and non-negative.")
+
+    if not np.isfinite(signal_var) or signal_var < 0:
+        raise ValueError("Signal variance must be finite and non-negative.")
+
+    # Initialize the LML surface.
+    # Rows correspond to noise levels.
+    # Columns correspond to length scales.
+    G = np.empty(
+        (len(noise_stds), len(length_scales)),
+        dtype=float
+    )
+
+    # Evaluate the log marginal likelihood at every grid point.
+    for i, noise_std in enumerate(noise_stds):
+
+        # Convert noise standard deviation into noise variance.
+        noise_var = noise_std ** 2
+
+        for j, length_scale in enumerate(length_scales):
+
+            # Define the squared exponential kernel.
+            # The default argument preserves the current length scale.
+            kernel = lambda A, B, ell=length_scale: se_kernel(
+                A,
+                B,
+                length_scale=ell,
+                signal_var=signal_var
+            )
+
+            # Calculate the log marginal likelihood.
+            result = log_marginal_likelihood(
+                X,
+                y,
+                kernel,
+                noise_var
+            )
+
+            G[i, j] = result["lml"]
+
+    # Find interior local maxima.
+    maxima = []
+
+    for i in range(1, G.shape[0] - 1):
+        for j in range(1, G.shape[1] - 1):
+
+            # Extract the 3 x 3 neighbourhood.
+            neighbourhood = G[i-1:i+2, j-1:j+2].copy()
+
+            # Exclude the centre cell.
+            neighbourhood[1, 1] = -np.inf
+
+            # Check whether the centre is strictly greater
+            # than all eight neighbouring cells.
+            if np.all(G[i, j] > neighbourhood):
+                maxima.append((int(i), int(j)))
+
+    return G, maxima
+
