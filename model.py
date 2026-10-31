@@ -1905,3 +1905,136 @@ def laplace_mode(K, y, max_iter=100, tol=1e-10):
 
     return f, float(lml)
 
+# Step 22 - gpc_predict
+def gpc_predict(K, y, f_hat, Ks, kss):
+    """
+    Compute the Laplace predictive distribution of a
+    Gaussian Process classifier.
+
+    Parameters
+    ----------
+    K : array-like, shape (N, N)
+        Training Gram matrix.
+    y : array-like, shape (N,)
+        Binary training labels (0 or 1).
+    f_hat : array-like, shape (N,)
+        Posterior mode of the latent function.
+    Ks : array-like, shape (N, N_star)
+        Cross-covariance matrix between training and test inputs.
+    kss : array-like, shape (N_star,)
+        Prior variances at the test inputs.
+
+    Returns
+    -------
+    mean : ndarray, shape (N_star,)
+        Predictive latent function mean.
+
+    var : ndarray, shape (N_star,)
+        Predictive latent function variance.
+
+    prob : ndarray, shape (N_star,)
+        Predictive probability of class 1.
+    """
+
+    # Convert inputs into NumPy arrays.
+    K = np.asarray(K, dtype=float)
+    y = np.asarray(y, dtype=float).reshape(-1)
+    f_hat = np.asarray(f_hat, dtype=float).reshape(-1)
+    Ks = np.asarray(Ks, dtype=float)
+    kss = np.asarray(kss, dtype=float).reshape(-1)
+
+    # Validate dimensions.
+    N = len(y)
+
+    if K.shape != (N, N):
+        raise ValueError("K must have shape (N, N).")
+
+    if len(f_hat) != N:
+        raise ValueError("f_hat must have the same length as y.")
+
+    if Ks.ndim != 2 or Ks.shape[0] != N:
+        raise ValueError("Ks must have shape (N, N_star).")
+
+    N_star = Ks.shape[1]
+
+    if len(kss) != N_star:
+        raise ValueError("kss must have length N_star.")
+
+    if not np.all((y == 0) | (y == 1)):
+        raise ValueError("y must contain only binary labels 0 and 1.")
+
+    if not all(np.all(np.isfinite(a)) for a in (K, y, f_hat, Ks, kss)):
+        raise ValueError("All inputs must contain finite values.")
+
+    if np.any(kss < 0):
+        raise ValueError("Prior variances must be non-negative.")
+
+    # --------------------------------------------------
+    # Step 1: Calculate sigmoid probabilities at f_hat.
+    # --------------------------------------------------
+
+    pi_f = np.exp(-np.logaddexp(0.0, -f_hat))
+
+    # Calculate W = pi * (1 - pi).
+    W = pi_f * (1.0 - pi_f)
+
+    # Calculate the square root of W.
+    s = np.sqrt(W)
+
+    # --------------------------------------------------
+    # Step 2: Construct B and compute its Cholesky factor.
+    #
+    # B = I + diag(s) @ K @ diag(s)
+    # --------------------------------------------------
+
+    B = np.eye(N) + (s[:, None] * K) * s[None, :]
+
+    L = np.linalg.cholesky(B)
+
+    # --------------------------------------------------
+    # Step 3: Calculate the predictive latent mean.
+    #
+    # mean = Ks.T @ (y - pi_f)
+    # --------------------------------------------------
+
+    mean = Ks.T @ (y - pi_f)
+
+    # --------------------------------------------------
+    # Step 4: Calculate the predictive latent variance.
+    #
+    # u = L^(-1) @ (s[:, None] * Ks)
+    # var = kss - sum(u ** 2, axis=0)
+    # --------------------------------------------------
+
+    u = solve_triangular(
+        L,
+        s[:, None] * Ks,
+        lower=True
+    )
+
+    var = kss - np.sum(u ** 2, axis=0)
+
+    # Prevent tiny negative variances caused by rounding.
+    var = np.maximum(var, 0.0)
+
+    # --------------------------------------------------
+    # Step 5: Calculate class probabilities using
+    # the probit approximation to the sigmoid integral.
+    #
+    # kappa(v) = (1 + pi * v / 8)^(-1/2)
+    # prob = sigmoid(kappa(v) * mean)
+    # --------------------------------------------------
+
+    kappa = 1.0 / np.sqrt(
+        1.0 + np.pi * var / 8.0
+    )
+
+    predictive_logits = kappa * mean
+
+    # Numerically stable sigmoid calculation.
+    prob = np.exp(
+        -np.logaddexp(0.0, -predictive_logits)
+    )
+
+    return mean, var, prob
+
