@@ -1269,3 +1269,97 @@ def lml_surface(X, y, length_scales, noise_stds, signal_var=1.0):
 
     return G, maxima
 
+# Step 18 - fit_with_restarts
+def fit_with_restarts(X, y, inits, kernel_and_grads, tol=0.1):
+    """
+    Fit Gaussian Process hyperparameters using multiple restarts.
+
+    Parameters
+    ----------
+    X : array-like
+        Training inputs.
+    y : array-like
+        Observed target values.
+    inits : iterable
+        Collection of initial log-hyperparameter arrays.
+    kernel_and_grads : callable
+        Function returning the kernel matrix and its analytical
+        gradients.
+    tol : float, default=0.1
+        Maximum absolute difference in log-parameter space
+        for considering two solutions identical.
+
+    Returns
+    -------
+    optima : list of dictionaries
+        Distinct optimized solutions, sorted by descending LML.
+
+        Each dictionary contains:
+        - theta: optimized log-hyperparameter array
+        - lml: maximum log marginal likelihood
+        - count: number of initializations converging to this optimum
+    """
+
+    # Validate tolerance.
+    if not np.isfinite(tol) or tol < 0:
+        raise ValueError("tol must be a finite, non-negative value.")
+
+    # Store all distinct local optima.
+    optima = []
+
+    # Process every initialization in its original order.
+    for theta0 in inits:
+
+        # Optimize the log marginal likelihood from this initialization.
+        theta_opt, lml_opt = maximize_lml(
+            theta0,
+            X,
+            y,
+            kernel_and_grads
+        )
+
+        theta_opt = np.asarray(theta_opt, dtype=float)
+        lml_opt = float(lml_opt)
+
+        # Search for an existing optimum within the specified tolerance.
+        matched_optimum = None
+
+        for optimum in optima:
+
+            # Compare optimized parameters in log space.
+            difference = np.max(
+                np.abs(optimum["theta"] - theta_opt)
+            )
+
+            if difference < tol:
+                matched_optimum = optimum
+                break
+
+        # If an existing optimum is found, update its count.
+        if matched_optimum is not None:
+
+            matched_optimum["count"] += 1
+
+            # Keep the result with the higher log marginal likelihood.
+            if lml_opt > matched_optimum["lml"]:
+                matched_optimum["theta"] = theta_opt.copy()
+                matched_optimum["lml"] = lml_opt
+
+        # Otherwise, create a new distinct optimum.
+        else:
+
+            optima.append({
+                "theta": theta_opt.copy(),
+                "lml": lml_opt,
+                "count": 1
+            })
+
+    # Sort distinct optima by log marginal likelihood,
+    # with the highest value first.
+    optima.sort(
+        key=lambda optimum: optimum["lml"],
+        reverse=True
+    )
+
+    return optima
+

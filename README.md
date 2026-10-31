@@ -27,6 +27,7 @@ python scaffold.py
 - [x] **15.** lml_and_grad
 - [x] **16.** maximize_lml
 - [x] **17.** lml_surface
+- [x] **18.** fit_with_restarts
 
 ---
 
