@@ -159,3 +159,66 @@ def matern_kernel(X1, X2, nu=1.5, length_scale=1.0, signal_var=1.0):
 
     return K
 
+# Step 3 - periodic_kernel
+def periodic_kernel(X1, X2, length_scale=1.0, period=1.0, signal_var=1.0):
+    """
+    Periodic kernel scaled by a signal variance.
+
+    Parameters
+    ----------
+    X1 : array-like, shape (n1, D) or (n1,)
+        First set of input points.
+    X2 : array-like, shape (n2, D) or (n2,)
+        Second set of input points.
+    length_scale : float
+        Positive length scale parameter.
+    period : float
+        Positive periodicity parameter.
+    signal_var : float
+        Overall signal variance.
+
+    Returns
+    -------
+    K : ndarray, shape (n1, n2)
+        Periodic kernel matrix.
+    """
+
+    # Validate kernel parameters.
+    if length_scale <= 0:
+        raise ValueError("length_scale must be strictly positive.")
+
+    if period <= 0:
+        raise ValueError("period must be strictly positive.")
+
+    if signal_var < 0:
+        raise ValueError("signal_var must be non-negative.")
+
+    # Convert inputs into 2D arrays.
+    X1 = as_2d(X1)
+    X2 = as_2d(X2)
+
+    # Ensure both inputs have the same number of features.
+    if X1.shape[1] != X2.shape[1]:
+        raise ValueError("X1 and X2 must have the same number of features.")
+
+    # Compute pairwise squared Euclidean distances.
+    X1_sq = np.sum(X1 ** 2, axis=1, keepdims=True)
+    X2_sq = np.sum(X2 ** 2, axis=1, keepdims=True)
+
+    d2 = X1_sq + X2_sq.T - 2.0 * (X1 @ X2.T)
+
+    # Clip small negative values caused by floating-point rounding.
+    d2 = np.maximum(d2, 0.0)
+
+    # Compute pairwise Euclidean distances.
+    r = np.sqrt(d2)
+
+    # Compute the periodic kernel.
+    sin_term = np.sin(np.pi * r / period)
+
+    K = signal_var * np.exp(
+        -2.0 * (sin_term ** 2) / (length_scale ** 2)
+    )
+
+    return K
+
