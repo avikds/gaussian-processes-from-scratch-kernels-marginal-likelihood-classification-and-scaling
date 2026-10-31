@@ -270,3 +270,97 @@ def linear_kernel(X1, X2, c=0.0, tau=1.0):
 
     return K
 
+# Step 5 - kernel_from_spec
+# Kernel library using functions defined in previous steps.
+KERNELS = {
+    "se": se_kernel,
+    "matern": matern_kernel,
+    "periodic": periodic_kernel,
+    "linear": linear_kernel
+}
+
+
+def kernel_from_spec(spec, X1, X2):
+    """
+    Evaluate a kernel defined by a nested specification.
+
+    Parameters
+    ----------
+    spec : tuple
+        Kernel specification.
+
+        Supported formats:
+        - ('se',)
+        - ('se', {'length_scale': 2.0})
+        - ('+', spec1, spec2, ...)
+        - ('*', spec1, spec2, ...)
+
+    X1 : array-like
+        First set of input points.
+    X2 : array-like
+        Second set of input points.
+
+    Returns
+    -------
+    K : ndarray, shape (n1, n2)
+        Evaluated kernel matrix.
+    """
+
+    # Validate the specification.
+    if not isinstance(spec, (tuple, list)) or len(spec) == 0:
+        raise ValueError("spec must be a non-empty tuple or list.")
+
+    # Extract the operation or kernel name.
+    op = spec[0]
+
+    # Handle composite sum and product kernels.
+    if op in ("+", "*"):
+
+        # A composite kernel must contain at least two terms.
+        if len(spec) < 3:
+            raise ValueError(
+                "Sum and product kernels require at least two terms."
+            )
+
+        # Evaluate the first child specification recursively.
+        K = kernel_from_spec(spec[1], X1, X2)
+
+        # Evaluate the remaining children recursively.
+        for child_spec in spec[2:]:
+
+            child_K = kernel_from_spec(child_spec, X1, X2)
+
+            # Apply elementwise addition or multiplication.
+            if op == "+":
+                K = K + child_K
+            else:
+                K = K * child_K
+
+        return K
+
+    # Handle leaf kernels.
+    else:
+
+        # Check that the leaf specification has a valid structure.
+        if len(spec) > 2:
+            raise ValueError(
+                "A leaf kernel must have the form (name,) or (name, params)."
+            )
+
+        # Check whether the requested kernel exists.
+        if op not in KERNELS:
+            raise ValueError(f"Unknown kernel: {op}")
+
+        # Extract kernel parameters.
+        # An omitted parameter dictionary means default parameters.
+        params = spec[1] if len(spec) == 2 else {}
+
+        if params is None:
+            params = {}
+
+        if not isinstance(params, dict):
+            raise ValueError("Kernel parameters must be provided as a dictionary.")
+
+        # Evaluate and return the selected kernel.
+        return KERNELS[op](X1, X2, **params)
+
