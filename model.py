@@ -222,3 +222,51 @@ def periodic_kernel(X1, X2, length_scale=1.0, period=1.0, signal_var=1.0):
 
     return K
 
+# Step 4 - linear_kernel
+def linear_kernel(X1, X2, c=0.0, tau=1.0):
+    """
+    Linear kernel with an offset and scaling parameter.
+
+    Parameters
+    ----------
+    X1 : array-like, shape (n1, D) or (n1,)
+        First set of input points.
+    X2 : array-like, shape (n2, D) or (n2,)
+        Second set of input points.
+    c : float or array-like, shape (D,)
+        Offset parameter.
+    tau : float
+        Kernel scaling parameter.
+
+    Returns
+    -------
+    K : ndarray, shape (n1, n2)
+        Linear kernel matrix.
+    """
+
+    # Convert inputs into 2D arrays.
+    X1 = as_2d(X1)
+    X2 = as_2d(X2)
+
+    # Ensure both inputs have the same number of features.
+    if X1.shape[1] != X2.shape[1]:
+        raise ValueError("X1 and X2 must have the same number of features.")
+
+    # Convert the offset into a NumPy array.
+    c = np.asarray(c, dtype=float)
+
+    # Validate the offset dimensions.
+    if c.ndim > 1 or (c.ndim == 1 and c.shape[0] != X1.shape[1]):
+        raise ValueError(
+            "c must be a scalar or an array with one value per feature."
+        )
+
+    # Center both input datasets using the offset.
+    X1_centered = X1 - c
+    X2_centered = X2 - c
+
+    # Compute the scaled linear kernel.
+    K = tau * (X1_centered @ X2_centered.T)
+
+    return K
+

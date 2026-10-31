@@ -13,6 +13,7 @@ python scaffold.py
 - [x] **1.** se_kernel
 - [x] **2.** matern_kernel
 - [x] **3.** periodic_kernel
+- [x] **4.** linear_kernel
 
 ---
 
