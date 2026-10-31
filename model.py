@@ -2038,3 +2038,212 @@ def gpc_predict(K, y, f_hat, Ks, kss):
 
     return mean, var, prob
 
+# Step 23 - iris_gpc_compare
+# Given Iris dataset: sepal lengths of 100 flowers.
+IRIS_SEPAL_LENGTH = [
+    5.1, 4.9, 4.7, 4.6, 5.0, 5.4, 4.6, 5.0, 4.4, 4.9,
+    5.4, 4.8, 4.8, 4.3, 5.8, 5.7, 5.4, 5.1, 5.7, 5.1,
+    5.4, 5.1, 4.6, 5.1, 4.8, 5.0, 5.0, 5.2, 5.2, 4.7,
+    4.8, 5.4, 5.2, 5.5, 4.9, 5.0, 5.5, 4.9, 4.4, 5.1,
+    5.0, 4.5, 4.4, 5.0, 5.1, 4.8, 5.1, 4.6, 5.3, 5.0,
+    7.0, 6.4, 6.9, 5.5, 6.5, 5.7, 6.3, 4.9, 6.6, 5.2,
+    5.0, 5.9, 6.0, 6.1, 5.6, 6.7, 5.6, 5.8, 6.2, 5.6,
+    5.9, 6.1, 6.3, 6.1, 6.4, 6.6, 6.8, 6.7, 6.0, 5.7,
+    5.5, 5.5, 5.8, 6.0, 5.4, 6.0, 6.7, 6.3, 5.6, 5.5,
+    5.5, 6.1, 5.8, 5.0, 5.6, 5.7, 5.7, 6.2, 5.1, 5.7
+]
+
+# Setosa = 0, Versicolor = 1.
+IRIS_VERSICOLOR = [0] * 50 + [1] * 50
+
+
+def iris_gpc_compare(
+    x_query,
+    length_scales=(0.25, 0.5, 1.0, 2.0, 4.0),
+    taus=(0.1, 1.0, 10.0, 100.0)
+):
+    """
+    Compare Gaussian Process classifiers using two kernel families:
+    1. Squared Exponential (SE).
+    2. Squared Exponential + Linear.
+
+    Select the best hyperparameters using the Laplace
+    log marginal likelihood.
+
+    Parameters
+    ----------
+    x_query : array-like
+        Query sepal lengths at which to predict class probabilities.
+
+    length_scales : tuple or array-like
+        Candidate SE length scales.
+
+    taus : tuple or array-like
+        Candidate linear kernel scaling parameters.
+
+    Returns
+    -------
+    results : dict
+        Dictionary with keys 'se' and 'se+linear'.
+
+        Each entry contains:
+        - spec: Best kernel specification.
+        - lml: Best Laplace log marginal likelihood.
+        - p: Predicted probabilities of class 1 at x_query.
+    """
+
+    # -----------------------------------------------------
+    # Step 1: Prepare the training dataset.
+    # -----------------------------------------------------
+
+    x = as_2d(IRIS_SEPAL_LENGTH)
+
+    y = np.asarray(IRIS_VERSICOLOR, dtype=float)
+
+    x_query = as_2d(x_query)
+
+    # Validate query dimensions.
+    if x_query.shape[1] != x.shape[1]:
+        raise ValueError(
+            "Query inputs must have the same number of features as training inputs."
+        )
+
+    if x_query.shape[0] == 0:
+        raise ValueError("At least one query point is required.")
+
+    # Mean sepal length, used as the offset in the linear kernel.
+    c = float(np.mean(x))
+
+    # Ensure candidate collections can be iterated repeatedly.
+    length_scales = tuple(length_scales)
+    taus = tuple(taus)
+
+    if len(length_scales) == 0:
+        raise ValueError("At least one length scale is required.")
+
+    if len(taus) == 0:
+        raise ValueError("At least one tau value is required.")
+
+    if any(not np.isfinite(l) or l <= 0 for l in length_scales):
+        raise ValueError("All length scales must be positive and finite.")
+
+    if any(not np.isfinite(tau) or tau <= 0 for tau in taus):
+        raise ValueError("All tau values must be positive and finite.")
+
+    results = {}
+
+    # -----------------------------------------------------
+    # Step 2: Evaluate the SE kernel family.
+    # -----------------------------------------------------
+
+    best_lml = -np.inf
+    best_spec = None
+    best_K = None
+    best_f = None
+
+    for ell in length_scales:
+
+        # Construct the SE kernel specification.
+        spec = (
+            "se",
+            {"length_scale": float(ell)}
+        )
+
+        # Compute the training Gram matrix.
+        K = kernel_from_spec(spec, x, x)
+
+        # Find the posterior mode and Laplace marginal likelihood.
+        f_hat, lml = laplace_mode(K, y)
+
+        # Keep the candidate with the highest LML.
+        # Strict > preserves the first candidate in case of a tie.
+        if lml > best_lml:
+            best_lml = lml
+            best_spec = spec
+            best_K = K
+            best_f = f_hat
+
+    # Compute the cross-covariance matrix for the best SE kernel.
+    Ks = kernel_from_spec(best_spec, x, x_query)
+
+    # Compute prior variances at the query inputs.
+    Kss = kernel_from_spec(best_spec, x_query, x_query)
+
+    kss = np.diag(Kss)
+
+    # Calculate predictive class probabilities.
+    _, _, probabilities = gpc_predict(
+        best_K,
+        y,
+        best_f,
+        Ks,
+        kss
+    )
+
+    results["se"] = {
+        "spec": best_spec,
+        "lml": float(best_lml),
+        "p": probabilities
+    }
+
+    # -----------------------------------------------------
+    # Step 3: Evaluate the SE + Linear kernel family.
+    # -----------------------------------------------------
+
+    best_lml = -np.inf
+    best_spec = None
+    best_K = None
+    best_f = None
+
+    # Outer loop: SE length scales.
+    for ell in length_scales:
+
+        # Inner loop: Linear kernel scaling parameters.
+        for tau in taus:
+
+            # Construct the composite kernel specification.
+            spec = (
+                "+",
+                ("se", {"length_scale": float(ell)}),
+                ("linear", {"c": c, "tau": float(tau)})
+            )
+
+            # Compute the training Gram matrix.
+            K = kernel_from_spec(spec, x, x)
+
+            # Find the posterior mode and Laplace marginal likelihood.
+            f_hat, lml = laplace_mode(K, y)
+
+            # Keep the best candidate.
+            # Strict > preserves the first candidate in case of a tie.
+            if lml > best_lml:
+                best_lml = lml
+                best_spec = spec
+                best_K = K
+                best_f = f_hat
+
+    # Compute cross-covariance for the best composite kernel.
+    Ks = kernel_from_spec(best_spec, x, x_query)
+
+    # Compute prior variances at query inputs.
+    Kss = kernel_from_spec(best_spec, x_query, x_query)
+
+    kss = np.diag(Kss)
+
+    # Calculate predictive class probabilities.
+    _, _, probabilities = gpc_predict(
+        best_K,
+        y,
+        best_f,
+        Ks,
+        kss
+    )
+
+    results["se+linear"] = {
+        "spec": best_spec,
+        "lml": float(best_lml),
+        "p": probabilities
+    }
+
+    return results
+

@@ -32,6 +32,7 @@ python scaffold.py
 - [x] **20.** forecast_comparison
 - [x] **21.** laplace_mode
 - [x] **22.** gpc_predict
+- [x] **23.** iris_gpc_compare
 
 ---
 
