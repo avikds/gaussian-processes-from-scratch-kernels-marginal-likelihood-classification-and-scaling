@@ -452,3 +452,70 @@ def sample_gp_prior(K, n_samples, rng, jitter=1e-8):
     # an output array of shape (n_samples, n).
     return (L @ Z).T
 
+# Step 8 - gp_condition
+def gp_condition(X, f, Xs, kernel, jitter=1e-10):
+    """
+    Compute the noise-free Gaussian Process posterior.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D) or (N,)
+        Training inputs.
+    f : array-like, shape (N,)
+        Observed function values at training inputs.
+    Xs : array-like, shape (N_star, D) or (N_star,)
+        Test inputs.
+    kernel : callable
+        Kernel function accepting two input sets and returning
+        their Gram matrix.
+    jitter : float, default=1e-10
+        Small diagonal value added for numerical stability.
+
+    Returns
+    -------
+    mu : ndarray, shape (N_star,)
+        Posterior predictive mean.
+    cov : ndarray, shape (N_star, N_star)
+        Posterior predictive covariance matrix.
+    """
+
+    # Convert training and test inputs into 2D arrays.
+    X = as_2d(X)
+    Xs = as_2d(Xs)
+
+    # Convert observed function values into a 1D array.
+    f = np.asarray(f, dtype=float).reshape(-1)
+
+    # Validate input dimensions.
+    if X.shape[1] != Xs.shape[1]:
+        raise ValueError("X and Xs must have the same number of features.")
+
+    if len(f) != X.shape[0]:
+        raise ValueError("The number of observed values must match X.")
+
+    # Number of training points.
+    N = X.shape[0]
+
+    # Step 1: Compute the training Gram matrix with numerical jitter.
+    K = kernel(X, X) + jitter * np.eye(N)
+
+    # Step 2: Compute the cross-covariance matrix.
+    Ks = kernel(X, Xs)
+
+    # Step 3: Compute the test Gram matrix.
+    Kss = kernel(Xs, Xs)
+
+    # Step 4: Solve K * alpha = f without explicitly computing K inverse.
+    alpha = np.linalg.solve(K, f)
+
+    # Step 5: Compute the posterior predictive mean.
+    mu = Ks.T @ alpha
+
+    # Step 6: Solve K * V = Ks.
+    V = np.linalg.solve(K, Ks)
+
+    # Step 7: Compute the posterior predictive covariance.
+    cov = Kss - Ks.T @ V
+
+    return mu, cov
+

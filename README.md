@@ -17,6 +17,7 @@ python scaffold.py
 - [x] **5.** kernel_from_spec
 - [x] **6.** is_valid_gram
 - [x] **7.** sample_gp_prior
+- [x] **8.** gp_condition
 
 ---
 
