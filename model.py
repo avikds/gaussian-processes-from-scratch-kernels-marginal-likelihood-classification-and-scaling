@@ -674,3 +674,70 @@ def log_marginal_likelihood(X, y, kernel, noise_var):
         "lml": float(lml)
     }
 
+# Step 11 - predictive_scores
+def predictive_scores(y, mu, var):
+    """
+    Evaluate Gaussian predictive distributions against observed targets.
+
+    Parameters
+    ----------
+    y : array-like, shape (N,)
+        Actual observed target values.
+    mu : array-like, shape (N,)
+        Predictive means.
+    var : array-like, shape (N,)
+        Predictive variances of the noisy targets.
+
+    Returns
+    -------
+    scores : dict
+        Dictionary containing:
+        - nll: Mean negative log predictive density.
+        - rmse: Root mean squared error.
+        - coverage95: Fraction of observations within the 95%
+          predictive intervals.
+    """
+
+    # Convert inputs into NumPy arrays.
+    y = np.asarray(y, dtype=float).reshape(-1)
+    mu = np.asarray(mu, dtype=float).reshape(-1)
+    var = np.asarray(var, dtype=float).reshape(-1)
+
+    # Ensure all three arrays have the same length.
+    if not (len(y) == len(mu) == len(var)):
+        raise ValueError("y, mu, and var must have the same length.")
+
+    # Ensure the arrays are not empty.
+    if len(y) == 0:
+        raise ValueError("Input arrays must not be empty.")
+
+    # Predictive variances must be strictly positive.
+    if np.any(var <= 0):
+        raise ValueError("Predictive variances must be strictly positive.")
+
+    # Compute prediction errors.
+    errors = y - mu
+
+    # 1. Mean Gaussian Negative Log-Likelihood (NLL).
+    nll = np.mean(
+        0.5 * np.log(2.0 * np.pi * var)
+        + (errors ** 2) / (2.0 * var)
+    )
+
+    # 2. Root Mean Squared Error (RMSE).
+    rmse = np.sqrt(np.mean(errors ** 2))
+
+    # 3. 95% predictive interval coverage.
+    # An observation is covered if it falls within:
+    # mu +/- 1.96 * sqrt(var).
+    covered = np.abs(errors) <= 1.96 * np.sqrt(var)
+
+    coverage95 = np.mean(covered)
+
+    # Return all metrics as Python floats.
+    return {
+        "nll": float(nll),
+        "rmse": float(rmse),
+        "coverage95": float(coverage95)
+    }
+
