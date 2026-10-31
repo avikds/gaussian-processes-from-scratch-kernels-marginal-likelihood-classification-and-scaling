@@ -2925,3 +2925,207 @@ def titsias_bound(X, y, Z, kernel, noise_var, jitter=1e-6):
 
     return float(bound)
 
+# Step 28 - scaling_showdown
+def scaling_showdown(M=200, seed=0):
+    """
+    Benchmark four Gaussian Process regression methods
+    on a large synthetic dataset.
+
+    Methods:
+    1. Exact Gaussian Process.
+    2. Subset-of-data Gaussian Process.
+    3. Random Fourier Feature Gaussian Process.
+    4. Inducing-point sparse Gaussian Process.
+
+    Parameters
+    ----------
+    M : int, default=200
+        Number of subset observations, random features,
+        and inducing points.
+
+    seed : int, default=0
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    results : dict
+        Contains:
+        - exact: Predictive scores of the exact GP.
+        - subset: Predictive scores of the subset GP.
+        - rff: Predictive scores of the RFF GP.
+        - inducing: Predictive scores of the sparse GP.
+        - bound_gap_per_point: Titsias variational bound gap
+          per training observation.
+        - hyper: Tuple (ell, sf2, sn2) of fitted hyperparameters.
+    """
+
+    # Validate the number of approximation components.
+    if not isinstance(M, (int, np.integer)) or M <= 0:
+        raise ValueError("M must be a positive integer.")
+
+    # -----------------------------------------------------
+    # Step 1: Generate training and testing data.
+    # -----------------------------------------------------
+
+    X, y, Xt, yt = scaling_data(seed=seed)
+
+    # Create the random number generator.
+    rng = np.random.default_rng(seed + 1)
+
+    # -----------------------------------------------------
+    # Step 2: Learn hyperparameters using ML-II.
+    # -----------------------------------------------------
+
+    # Select 400 randomly chosen training observations.
+    sub = rng.permutation(len(X))[:400]
+
+    # Optimize the SE kernel hyperparameters.
+    theta, _ = maximize_lml(
+        np.log([1.0, 1.0, 0.5]),
+        X[sub],
+        y[sub],
+        se_kernel_and_grads
+    )
+
+    # Extract the optimized kernel hyperparameters.
+    ell = float(np.exp(theta[0]))
+
+    # Signal variance = exp(2 * log_signal_std).
+    sf2 = float(np.exp(2.0 * theta[1]))
+
+    # Observation noise variance = exp(2 * log_noise_std).
+    sn2 = float(np.exp(2.0 * theta[2]))
+
+    # Define the fitted Squared Exponential kernel.
+    kernel = lambda A, B: se_kernel(
+        A,
+        B,
+        length_scale=ell,
+        signal_var=sf2
+    )
+
+    # -----------------------------------------------------
+    # Step 3: Exact Gaussian Process prediction.
+    # -----------------------------------------------------
+
+    exact_mu, exact_var = gp_predict(
+        X,
+        y,
+        Xt,
+        kernel,
+        sn2
+    )
+
+    exact_scores = predictive_scores(
+        yt,
+        exact_mu,
+        exact_var + sn2
+    )
+
+    # -----------------------------------------------------
+    # Step 4: Subset-of-data Gaussian Process prediction.
+    # -----------------------------------------------------
+
+    # Select M randomly chosen training observations.
+    idx = rng.permutation(len(X))[:M]
+
+    subset_mu, subset_var = gp_predict(
+        X[idx],
+        y[idx],
+        Xt,
+        kernel,
+        sn2
+    )
+
+    subset_scores = predictive_scores(
+        yt,
+        subset_mu,
+        subset_var + sn2
+    )
+
+    # -----------------------------------------------------
+    # Step 5: Random Fourier Feature GP prediction.
+    # -----------------------------------------------------
+
+    # Use standard trigonometric random features.
+    # Orthogonal random features are disabled.
+    rff_mu, rff_var = rff_gp_predict(
+        X,
+        y,
+        Xt,
+        M,
+        ell,
+        sf2,
+        sn2,
+        rng,
+        kind="trig",
+        orthogonal=False
+    )
+
+    rff_scores = predictive_scores(
+        yt,
+        rff_mu,
+        rff_var + sn2
+    )
+
+    # -----------------------------------------------------
+    # Step 6: Inducing-point sparse GP prediction.
+    # -----------------------------------------------------
+
+    # Select M inducing points using the shared RNG.
+    Z = X[rng.permutation(len(X))[:M]]
+
+    inducing_mu, inducing_var = sparse_gp_predict(
+        X,
+        y,
+        Z,
+        Xt,
+        kernel,
+        sn2
+    )
+
+    inducing_scores = predictive_scores(
+        yt,
+        inducing_mu,
+        inducing_var + sn2
+    )
+
+    # -----------------------------------------------------
+    # Step 7: Calculate Titsias' variational bound gap.
+    # -----------------------------------------------------
+
+    # Exact GP log marginal likelihood on all training points.
+    exact_lml = log_marginal_likelihood(
+        X,
+        y,
+        kernel,
+        sn2
+    )["lml"]
+
+    # Titsias' variational lower bound using the same inducing points.
+    variational_bound = titsias_bound(
+        X,
+        y,
+        Z,
+        kernel,
+        sn2
+    )
+
+    # Difference per training observation.
+    bound_gap_per_point = float(
+        (exact_lml - variational_bound) / len(y)
+    )
+
+    # -----------------------------------------------------
+    # Return all benchmark results.
+    # -----------------------------------------------------
+
+    return {
+        "exact": exact_scores,
+        "subset": subset_scores,
+        "rff": rff_scores,
+        "inducing": inducing_scores,
+        "bound_gap_per_point": bound_gap_per_point,
+        "hyper": (ell, sf2, sn2)
+    }
+

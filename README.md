@@ -37,6 +37,7 @@ python scaffold.py
 - [x] **25.** rff_gp_predict
 - [x] **26.** sparse_gp_predict
 - [x] **27.** titsias_bound
+- [x] **28.** scaling_showdown
 
 ---
 
