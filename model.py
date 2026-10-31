@@ -1363,3 +1363,207 @@ def fit_with_restarts(X, y, inits, kernel_and_grads, tol=0.1):
 
     return optima
 
+# Step 19 - seasonal_kernel_and_grads
+# ---------------------------------------------------------
+# Given seasonal time-series data generator.
+# ---------------------------------------------------------
+
+def seasonal_series(n_years=20, per_year=8, noise_std=0.3, seed=0):
+    rng = np.random.default_rng(seed)
+
+    t = np.arange(n_years * per_year) / per_year
+
+    # Long-term trend.
+    trend = 0.6 * t + 0.015 * t ** 2
+
+    # Slowly varying seasonal amplitude.
+    amp = 1.0 + 0.25 * np.sin(2 * np.pi * t / 13.0)
+
+    # Yearly and half-yearly seasonal components.
+    season = amp * (
+        1.5 * np.sin(2 * np.pi * t)
+        + 0.5 * np.sin(4 * np.pi * t + 0.7)
+    )
+
+    # Irregular oscillations.
+    irregular = (
+        0.6 * np.sin(2 * np.pi * t / 3.3 + 1.0)
+        + 0.4 * np.sin(2 * np.pi * t / 1.7 + 2.0)
+    )
+
+    # Add Gaussian observation noise.
+    y = trend + season + irregular + noise_std * rng.standard_normal(len(t))
+
+    return t, y
+
+
+# ---------------------------------------------------------
+# Given composite kernel specification.
+# ---------------------------------------------------------
+
+def seasonal_spec(log_params):
+    s1, l1, s2, l2, l3, p, s3, l4, tau = np.exp(
+        np.asarray(log_params, dtype=float)
+    )
+
+    return (
+        "+",
+        ("se", {"length_scale": l1, "signal_var": s1}),
+        (
+            "*",
+            ("se", {"length_scale": l2, "signal_var": s2}),
+            ("periodic", {"length_scale": l3, "period": p})
+        ),
+        ("se", {"length_scale": l4, "signal_var": s3}),
+        ("linear", {"c": 0.0, "tau": tau})
+    )
+
+
+# ---------------------------------------------------------
+# Seasonal composite kernel and analytical gradients.
+# ---------------------------------------------------------
+
+def seasonal_kernel_and_grads(log_params, X):
+    """
+    Compute the four-component seasonal composite kernel
+    and its nine analytical log-parameter derivatives.
+
+    Parameter order:
+    [s1, l1, s2, l2, l3, p, s3, l4, tau]
+
+    Returns
+    -------
+    K : ndarray, shape (N, N)
+        Composite kernel matrix.
+
+    dKs : list
+        Nine derivative matrices in parameter order.
+    """
+
+    # Convert inputs to NumPy arrays.
+    log_params = np.asarray(log_params, dtype=float)
+    X = as_2d(X)
+
+    # Validate input parameters.
+    if log_params.shape != (9,):
+        raise ValueError("log_params must contain exactly nine values.")
+
+    if not np.all(np.isfinite(log_params)):
+        raise ValueError("log_params must contain finite values.")
+
+    # Transform log parameters into positive kernel parameters.
+    s1, l1, s2, l2, l3, p, s3, l4, tau = np.exp(log_params)
+
+    # Compute pairwise squared Euclidean distances.
+    X_sq = np.sum(X ** 2, axis=1, keepdims=True)
+
+    r2 = X_sq + X_sq.T - 2.0 * (X @ X.T)
+
+    # Prevent small negative squared distances from rounding.
+    r2 = np.maximum(r2, 0.0)
+
+    # Pairwise Euclidean distances.
+    r = np.sqrt(r2)
+
+    # -----------------------------------------------------
+    # Component 1: Long-term squared exponential trend.
+    # K1 = s1 * SE(l1)
+    # -----------------------------------------------------
+
+    K1 = s1 * np.exp(
+        -r2 / (2.0 * l1 ** 2)
+    )
+
+    # -----------------------------------------------------
+    # Component 2: Quasi-periodic seasonal component.
+    # K2 = s2 * SE(l2) * Periodic(l3, p)
+    # -----------------------------------------------------
+
+    SE2 = np.exp(
+        -r2 / (2.0 * l2 ** 2)
+    )
+
+    u = np.pi * r / p
+
+    periodic = np.exp(
+        -2.0 * np.sin(u) ** 2 / (l3 ** 2)
+    )
+
+    K2 = s2 * SE2 * periodic
+
+    # -----------------------------------------------------
+    # Component 3: Short-term irregular component.
+    # K3 = s3 * SE(l4)
+    # -----------------------------------------------------
+
+    K3 = s3 * np.exp(
+        -r2 / (2.0 * l4 ** 2)
+    )
+
+    # -----------------------------------------------------
+    # Component 4: Linear trend.
+    # K4 = tau * X @ X.T
+    # -----------------------------------------------------
+
+    K4 = tau * (X @ X.T)
+
+    # -----------------------------------------------------
+    # Construct the complete kernel using the given spec.
+    # -----------------------------------------------------
+
+    K = kernel_from_spec(
+        seasonal_spec(log_params),
+        X,
+        X
+    )
+
+    # -----------------------------------------------------
+    # Analytical derivatives with respect to log parameters.
+    # -----------------------------------------------------
+
+    # 1. Derivative with respect to log(s1).
+    dK_dlog_s1 = K1
+
+    # 2. Derivative with respect to log(l1).
+    dK_dlog_l1 = K1 * r2 / (l1 ** 2)
+
+    # 3. Derivative with respect to log(s2).
+    dK_dlog_s2 = K2
+
+    # 4. Derivative with respect to log(l2).
+    dK_dlog_l2 = K2 * r2 / (l2 ** 2)
+
+    # 5. Derivative with respect to log(l3).
+    dK_dlog_l3 = (
+        K2 * 4.0 * np.sin(u) ** 2 / (l3 ** 2)
+    )
+
+    # 6. Derivative with respect to log(period).
+    dK_dlog_p = (
+        K2 * 4.0 * u * np.sin(u) * np.cos(u) / (l3 ** 2)
+    )
+
+    # 7. Derivative with respect to log(s3).
+    dK_dlog_s3 = K3
+
+    # 8. Derivative with respect to log(l4).
+    dK_dlog_l4 = K3 * r2 / (l4 ** 2)
+
+    # 9. Derivative with respect to log(tau).
+    dK_dlog_tau = K4
+
+    # Return derivatives in exactly the specified order.
+    dKs = [
+        dK_dlog_s1,
+        dK_dlog_l1,
+        dK_dlog_s2,
+        dK_dlog_l2,
+        dK_dlog_l3,
+        dK_dlog_p,
+        dK_dlog_s3,
+        dK_dlog_l4,
+        dK_dlog_tau
+    ]
+
+    return K, dKs
+
