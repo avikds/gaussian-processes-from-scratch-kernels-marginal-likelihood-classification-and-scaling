@@ -36,6 +36,7 @@ python scaffold.py
 - [x] **24.** random_fourier_features
 - [x] **25.** rff_gp_predict
 - [x] **26.** sparse_gp_predict
+- [x] **27.** titsias_bound
 
 ---
 

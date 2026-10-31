@@ -2746,3 +2746,182 @@ def sparse_gp_predict(X, y, Z, Xs, kernel, noise_var, jitter=1e-6):
 
     return mean, var
 
+# Step 27 - titsias_bound
+def titsias_bound(X, y, Z, kernel, noise_var, jitter=1e-6):
+    """
+    Compute Titsias' collapsed variational lower bound
+    for a sparse Gaussian Process.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D) or (N,)
+        Training inputs.
+
+    y : array-like, shape (N,)
+        Training target values.
+
+    Z : array-like, shape (M, D) or (M,)
+        Inducing points (pseudo-inputs).
+
+    kernel : callable
+        Kernel function returning Gram matrices.
+
+    noise_var : float
+        Observation noise variance.
+
+    jitter : float, default=1e-6
+        Small diagonal value added for numerical stability.
+
+    Returns
+    -------
+    bound : float
+        Titsias' collapsed variational lower bound.
+    """
+
+    # -----------------------------------------------------
+    # Step 1: Convert inputs into NumPy arrays.
+    # -----------------------------------------------------
+
+    X = as_2d(X)
+    Z = as_2d(Z)
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate dimensions.
+    if X.shape[1] != Z.shape[1]:
+        raise ValueError(
+            "X and Z must have the same number of features."
+        )
+
+    if len(y) != X.shape[0]:
+        raise ValueError(
+            "The number of target values must match X."
+        )
+
+    if X.shape[0] == 0 or Z.shape[0] == 0:
+        raise ValueError(
+            "Training inputs and inducing points must be non-empty."
+        )
+
+    if not np.isfinite(noise_var) or noise_var <= 0:
+        raise ValueError(
+            "noise_var must be strictly positive."
+        )
+
+    if not np.isfinite(jitter) or jitter < 0:
+        raise ValueError(
+            "jitter must be finite and non-negative."
+        )
+
+    # Number of training observations and inducing points.
+    N = X.shape[0]
+    M = Z.shape[0]
+
+    # Observation noise standard deviation.
+    sigma = np.sqrt(noise_var)
+
+    # -----------------------------------------------------
+    # Step 2: Compute the inducing-point covariance matrix.
+    #
+    # L_Z = chol(K_ZZ + jitter * I)
+    # -----------------------------------------------------
+
+    K_ZZ = kernel(Z, Z)
+
+    L_Z = np.linalg.cholesky(
+        K_ZZ + jitter * np.eye(M)
+    )
+
+    # -----------------------------------------------------
+    # Step 3: Compute the normalized inducing-point
+    # cross-covariance matrix.
+    #
+    # A = (L_Z \ K_ZX) / sigma
+    # -----------------------------------------------------
+
+    K_ZX = kernel(Z, X)
+
+    A = solve_triangular(
+        L_Z,
+        K_ZX,
+        lower=True
+    ) / sigma
+
+    # A has shape (M, N).
+
+    # -----------------------------------------------------
+    # Step 4: Construct B and compute its Cholesky factor.
+    #
+    # B = I + A @ A.T
+    # L_B = chol(B)
+    # -----------------------------------------------------
+
+    B = np.eye(M) + A @ A.T
+
+    L_B = np.linalg.cholesky(B)
+
+    # -----------------------------------------------------
+    # Step 5: Compute the auxiliary coefficient vector.
+    #
+    # c = (L_B \ (A @ y)) / sigma
+    # -----------------------------------------------------
+
+    c = solve_triangular(
+        L_B,
+        A @ y,
+        lower=True
+    ) / sigma
+
+    # -----------------------------------------------------
+    # Step 6: Compute the log determinant contribution.
+    #
+    # log|Q_XX + sigma^2 I|
+    # = N log(sigma^2) + 2 sum(log(diag(L_B)))
+    # -----------------------------------------------------
+
+    logdet = (
+        N * np.log(noise_var)
+        + 2.0 * np.sum(np.log(np.diag(L_B)))
+    )
+
+    # -----------------------------------------------------
+    # Step 7: Compute the quadratic data-fit contribution.
+    #
+    # y.T @ inv(Q_XX + sigma^2 I) @ y
+    # = y.T @ y / sigma^2 - c.T @ c
+    # -----------------------------------------------------
+
+    quadratic = (
+        (y @ y) / noise_var
+        - (c @ c)
+    )
+
+    # -----------------------------------------------------
+    # Step 8: Compute the trace correction.
+    #
+    # tr(K_XX) = sum(kernel_diag(kernel, X))
+    # tr(Q_XX) = sigma^2 * sum(A ** 2)
+    # -----------------------------------------------------
+
+    trace_K = np.sum(
+        kernel_diag(kernel, X)
+    )
+
+    trace_Q = noise_var * np.sum(A ** 2)
+
+    trace_correction = (
+        trace_K - trace_Q
+    ) / noise_var
+
+    # -----------------------------------------------------
+    # Step 9: Compute Titsias' collapsed variational bound.
+    # -----------------------------------------------------
+
+    bound = (
+        -0.5 * N * np.log(2.0 * np.pi)
+        -0.5 * logdet
+        -0.5 * quadratic
+        -0.5 * trace_correction
+    )
+
+    return float(bound)
+
