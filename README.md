@@ -30,6 +30,7 @@ python scaffold.py
 - [x] **18.** fit_with_restarts
 - [x] **19.** seasonal_kernel_and_grads
 - [x] **20.** forecast_comparison
+- [x] **21.** laplace_mode
 
 ---
 

@@ -1748,3 +1748,160 @@ def forecast_comparison(t, y, split_year=15.0):
         "composite": composite_scores
     }
 
+# Step 21 - laplace_mode
+def laplace_mode(K, y, max_iter=100, tol=1e-10):
+    """
+    Find the posterior mode of the latent function in a
+    Gaussian Process classifier using Newton's method.
+
+    Also compute the Laplace approximation to the log
+    marginal likelihood.
+
+    Parameters
+    ----------
+    K : array-like, shape (N, N)
+        Training Gram matrix (prior covariance matrix).
+    y : array-like, shape (N,)
+        Binary class labels containing only 0 and 1.
+    max_iter : int, default=100
+        Maximum number of Newton iterations.
+    tol : float, default=1e-10
+        Convergence tolerance based on the change in the
+        objective function.
+
+    Returns
+    -------
+    f : ndarray, shape (N,)
+        Posterior mode of the latent function.
+
+    lml : float
+        Laplace-approximated log marginal likelihood.
+    """
+
+    # Convert inputs into NumPy arrays.
+    K = np.asarray(K, dtype=float)
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate the covariance matrix.
+    if K.ndim != 2 or K.shape[0] != K.shape[1]:
+        raise ValueError("K must be a square matrix.")
+
+    N = K.shape[0]
+
+    if N == 0:
+        raise ValueError("K must not be empty.")
+
+    if len(y) != N:
+        raise ValueError("The number of labels must match K.")
+
+    if not np.all(np.isfinite(K)) or not np.all(np.isfinite(y)):
+        raise ValueError("K and y must contain finite values.")
+
+    if not np.all((y == 0) | (y == 1)):
+        raise ValueError("Labels y must contain only 0 and 1.")
+
+    if max_iter <= 0:
+        raise ValueError("max_iter must be positive.")
+
+    if tol < 0:
+        raise ValueError("tol must be non-negative.")
+
+    # Initialize the latent function at zero.
+    f = np.zeros(N, dtype=float)
+
+    # Store the previous objective value for convergence checking.
+    previous_psi = None
+
+    # ---------------------------------------------------------
+    # Newton iterations.
+    # ---------------------------------------------------------
+
+    for iteration in range(max_iter):
+
+        # Step 1: Compute sigmoid probabilities stably.
+        pi = np.exp(-np.logaddexp(0.0, -f))
+
+        # Compute W = pi * (1 - pi).
+        W = pi * (1.0 - pi)
+
+        # Square root of W.
+        s = np.sqrt(W)
+
+        # Step 2: Construct B = I + sqrt(W) K sqrt(W).
+        B = np.eye(N) + (s[:, None] * K) * s[None, :]
+
+        # Compute the lower Cholesky factor of B.
+        L = np.linalg.cholesky(B)
+
+        # Step 3: Compute b = W * f + (y - pi).
+        b = W * f + (y - pi)
+
+        # Compute K @ b.
+        Kb = K @ b
+
+        # Compute sqrt(W) * Kb.
+        rhs = s * Kb
+
+        # Solve L @ z = rhs.
+        z = solve_triangular(
+            L,
+            rhs,
+            lower=True
+        )
+
+        # Solve L.T @ u = z.
+        u = solve_triangular(
+            L.T,
+            z,
+            lower=False
+        )
+
+        # Compute the Newton auxiliary vector.
+        a = b - s * u
+
+        # Step 4: Update the latent function.
+        f_new = K @ a
+
+        # Compute the Bernoulli log-likelihood stably.
+        log_likelihood = np.sum(
+            y * (-np.logaddexp(0.0, -f_new))
+            + (1.0 - y) * (-np.logaddexp(0.0, f_new))
+        )
+
+        # Compute the objective function:
+        # Psi = -0.5 * a.T @ f + log likelihood.
+        psi = (
+            -0.5 * (a @ f_new)
+            + log_likelihood
+        )
+
+        # Update the latent function.
+        f = f_new
+
+        # Step 5: Check convergence using the objective change.
+        if previous_psi is not None:
+            if abs(psi - previous_psi) < tol:
+                break
+
+        previous_psi = psi
+
+    # ---------------------------------------------------------
+    # Recompute the Cholesky factor at the final latent function.
+    # ---------------------------------------------------------
+
+    pi = np.exp(-np.logaddexp(0.0, -f))
+
+    W = pi * (1.0 - pi)
+
+    s = np.sqrt(W)
+
+    B = np.eye(N) + (s[:, None] * K) * s[None, :]
+
+    L = np.linalg.cholesky(B)
+
+    # Laplace-approximated log marginal likelihood:
+    # lml = Psi - sum(log(diag(L))).
+    lml = psi - np.sum(np.log(np.diag(L)))
+
+    return f, float(lml)
+
