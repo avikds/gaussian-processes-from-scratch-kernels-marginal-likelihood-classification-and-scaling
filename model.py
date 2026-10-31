@@ -364,3 +364,53 @@ def kernel_from_spec(spec, X1, X2):
         # Evaluate and return the selected kernel.
         return KERNELS[op](X1, X2, **params)
 
+# Step 6 - is_valid_gram
+def is_valid_gram(K, tol=1e-8):
+    """
+    Check whether a Gram matrix satisfies the Mercer condition.
+
+    Parameters
+    ----------
+    K : array-like, shape (n, n)
+        Gram matrix to be checked.
+    tol : float, default=1e-8
+        Numerical tolerance for positive semidefiniteness.
+
+    Returns
+    -------
+    symmetric : bool
+        True if K is symmetric within a tolerance of 1e-10.
+
+    min_eig : float
+        Smallest eigenvalue of the symmetric part of K.
+
+    valid : bool
+        True if K is symmetric and positive semidefinite
+        within the specified tolerance.
+    """
+
+    # Convert the input into a NumPy array.
+    K = np.asarray(K, dtype=float)
+
+    # Ensure that K is a non-empty square matrix.
+    if K.ndim != 2 or K.shape[0] != K.shape[1] or K.shape[0] == 0:
+        raise ValueError("K must be a non-empty square matrix.")
+
+    # Check symmetry using the specified absolute tolerance.
+    symmetric = bool(np.all(np.abs(K - K.T) <= 1e-10))
+
+    # Construct the symmetric part of the Gram matrix.
+    K_sym = (K + K.T) / 2.0
+
+    # Compute the eigenvalues of the symmetric matrix.
+    # eigvalsh is numerically appropriate for symmetric matrices.
+    eigenvalues = np.linalg.eigvalsh(K_sym)
+
+    # Find the smallest eigenvalue.
+    min_eig = float(np.min(eigenvalues))
+
+    # Check the Mercer condition within the numerical tolerance.
+    valid = bool(symmetric and min_eig >= -tol)
+
+    return symmetric, min_eig, valid
+

@@ -15,6 +15,7 @@ python scaffold.py
 - [x] **3.** periodic_kernel
 - [x] **4.** linear_kernel
 - [x] **5.** kernel_from_spec
+- [x] **6.** is_valid_gram
 
 ---
 
