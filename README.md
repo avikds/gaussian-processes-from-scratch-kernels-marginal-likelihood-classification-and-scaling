@@ -33,6 +33,7 @@ python scaffold.py
 - [x] **21.** laplace_mode
 - [x] **22.** gpc_predict
 - [x] **23.** iris_gpc_compare
+- [x] **24.** random_fourier_features
 
 ---
 

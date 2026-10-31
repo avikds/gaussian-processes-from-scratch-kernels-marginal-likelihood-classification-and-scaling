@@ -2247,3 +2247,207 @@ def iris_gpc_compare(
 
     return results
 
+# Step 24 - random_fourier_features
+# ---------------------------------------------------------
+# Given synthetic dataset generator for Part 6.
+# ---------------------------------------------------------
+
+def scaling_data(n_train=2000, n_test=500, noise_std=0.2, seed=0):
+    """
+    Generate synthetic data for evaluating scalable GP methods.
+
+    Returns
+    -------
+    X : training inputs
+    y : training targets
+    Xt : test inputs
+    yt : test targets
+    """
+
+    rng = np.random.default_rng(seed)
+
+    X = rng.uniform(-3, 3, (n_train + n_test, 2))
+
+    f = (
+        np.sin(2 * X[:, 0])
+        + 0.5 * np.cos(3 * X[:, 1])
+        + 0.2 * X[:, 0] * X[:, 1]
+    )
+
+    y = f + noise_std * rng.standard_normal(len(X))
+
+    return X[:n_train], y[:n_train], X[n_train:], y[n_train:]
+
+
+# ---------------------------------------------------------
+# Random Fourier Features.
+# ---------------------------------------------------------
+
+def random_fourier_features(
+    D,
+    M,
+    length_scale,
+    rng,
+    kind="trig",
+    orthogonal=False
+):
+    """
+    Construct a random Fourier feature mapping for the
+    Squared Exponential kernel.
+
+    Supports:
+    1. Trigonometric features.
+    2. Positive exponential features.
+    3. Orthogonal random features.
+
+    Parameters
+    ----------
+    D : int
+        Number of input dimensions.
+
+    M : int
+        Number of requested random features.
+
+    length_scale : float
+        Length scale of the Squared Exponential kernel.
+
+    rng : numpy.random.Generator
+        Random number generator.
+
+    kind : str, default="trig"
+        Feature type: "trig" or "positive".
+
+    orthogonal : bool, default=False
+        Whether to use orthogonal random features.
+
+    Returns
+    -------
+    phi : callable
+        A feature mapping function phi(X).
+    """
+
+    # Validate input dimensions.
+    if not isinstance(D, (int, np.integer)) or D <= 0:
+        raise ValueError("D must be a positive integer.")
+
+    if not isinstance(M, (int, np.integer)) or M <= 0:
+        raise ValueError("M must be a positive integer.")
+
+    # Validate the length scale.
+    if not np.isfinite(length_scale) or length_scale <= 0:
+        raise ValueError("length_scale must be strictly positive.")
+
+    # Validate the feature type.
+    if kind not in ("trig", "positive"):
+        raise ValueError("kind must be either 'trig' or 'positive'.")
+
+    # Determine the number of random frequency vectors.
+    if kind == "trig":
+        n_freq = M // 2
+
+        if n_freq == 0:
+            raise ValueError("M must be at least 2 for trig features.")
+
+    else:
+        n_freq = M
+
+    # -----------------------------------------------------
+    # Step 1: Generate the frequency matrix Omega.
+    # -----------------------------------------------------
+
+    if not orthogonal:
+
+        # Standard Gaussian random frequencies.
+        # Generate all frequencies in one call.
+        Omega = rng.standard_normal((n_freq, D))
+
+    else:
+
+        # Generate orthogonal random frequency blocks.
+        blocks = []
+        n_rows = 0
+
+        while n_rows < n_freq:
+
+            # Generate a random square Gaussian matrix.
+            A = rng.standard_normal((D, D))
+
+            # QR decomposition.
+            Q, R = np.linalg.qr(A)
+
+            # Correct the signs of Q's columns.
+            signs = np.sign(np.diag(R))
+
+            Q = Q * signs[None, :]
+
+            # Generate independent Gaussian vector norms.
+            norms = np.linalg.norm(
+                rng.standard_normal((D, D)),
+                axis=1
+            )
+
+            # Scale the orthogonal rows by their corresponding norms.
+            block = norms[:, None] * Q
+
+            blocks.append(block)
+
+            n_rows += D
+
+        # Combine blocks and retain exactly n_freq rows.
+        Omega = np.vstack(blocks)[:n_freq]
+
+    # -----------------------------------------------------
+    # Step 2: Define the random feature mapping.
+    # -----------------------------------------------------
+
+    def phi(X):
+
+        # Convert inputs into a 2D NumPy array.
+        X = as_2d(X)
+
+        # Validate the input dimensionality.
+        if X.shape[1] != D:
+            raise ValueError(
+                "Input X must have exactly D features."
+            )
+
+        # Scale the inputs by the length scale.
+        X_scaled = X / length_scale
+
+        # Calculate the projection matrix.
+        P = X_scaled @ Omega.T
+
+        # -------------------------------------------------
+        # Trigonometric random Fourier features.
+        # -------------------------------------------------
+
+        if kind == "trig":
+
+            features = np.hstack([
+                np.sin(P),
+                np.cos(P)
+            ])
+
+            return features / np.sqrt(n_freq)
+
+        # -------------------------------------------------
+        # Positive random features.
+        # -------------------------------------------------
+
+        else:
+
+            norm_sq = np.sum(
+                X_scaled ** 2,
+                axis=1,
+                keepdims=True
+            )
+
+            features = np.exp(
+                P - 0.5 * norm_sq
+            )
+
+            return features / np.sqrt(M)
+
+    # Return the mapping with the sampled frequencies fixed.
+    return phi
+
