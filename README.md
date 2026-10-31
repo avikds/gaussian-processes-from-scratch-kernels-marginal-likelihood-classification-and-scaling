@@ -11,6 +11,7 @@ python scaffold.py
 ## Steps
 
 - [x] **1.** se_kernel
+- [x] **2.** matern_kernel
 
 ---
 
