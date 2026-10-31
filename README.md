@@ -21,6 +21,7 @@ python scaffold.py
 - [x] **9.** gp_predict
 - [x] **10.** log_marginal_likelihood
 - [x] **11.** predictive_scores
+- [x] **12.** nadaraya_watson
 
 ---
 

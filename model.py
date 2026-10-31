@@ -741,3 +741,74 @@ def predictive_scores(y, mu, var):
         "coverage95": float(coverage95)
     }
 
+# Step 12 - nadaraya_watson
+def nadaraya_watson(X, y, Xs, bandwidth):
+    """
+    Perform Nadaraya-Watson kernel regression using a Gaussian kernel.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D) or (N,)
+        Training inputs.
+    y : array-like, shape (N,)
+        Observed target values.
+    Xs : array-like, shape (N_star, D) or (N_star,)
+        Test inputs.
+    bandwidth : float
+        Positive bandwidth parameter of the Gaussian kernel.
+
+    Returns
+    -------
+    predictions : ndarray, shape (N_star,)
+        Predicted values at the test inputs.
+    """
+
+    # Convert inputs into 2D arrays.
+    X = as_2d(X)
+    Xs = as_2d(Xs)
+
+    # Convert target values into a 1D array.
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate the bandwidth.
+    if not np.isfinite(bandwidth) or bandwidth <= 0:
+        raise ValueError("bandwidth must be strictly positive.")
+
+    # Validate input dimensions.
+    if X.shape[1] != Xs.shape[1]:
+        raise ValueError("X and Xs must have the same number of features.")
+
+    # Validate the number of training targets.
+    if len(y) != X.shape[0]:
+        raise ValueError("The number of target values must match X.")
+
+    if X.shape[0] == 0:
+        raise ValueError("At least one training point is required.")
+
+    # Compute pairwise squared Euclidean distances.
+    Xs_sq = np.sum(Xs ** 2, axis=1, keepdims=True)
+    X_sq = np.sum(X ** 2, axis=1, keepdims=True)
+
+    d2 = Xs_sq + X_sq.T - 2.0 * (Xs @ X.T)
+
+    # Clip small negative values caused by floating-point rounding.
+    d2 = np.maximum(d2, 0.0)
+
+    # Compute Gaussian log weights.
+    log_weights = -d2 / (2.0 * bandwidth ** 2)
+
+    # Numerical stabilization:
+    # Subtract the maximum log weight in each row before exponentiation.
+    log_weights -= np.max(log_weights, axis=1, keepdims=True)
+
+    # Convert log weights into Gaussian weights.
+    weights = np.exp(log_weights)
+
+    # Normalize weights separately for each test input.
+    weights /= np.sum(weights, axis=1, keepdims=True)
+
+    # Compute predictions using normalized weighted averages.
+    predictions = weights @ y
+
+    return predictions
+
