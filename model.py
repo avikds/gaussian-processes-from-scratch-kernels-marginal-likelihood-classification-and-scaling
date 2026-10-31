@@ -414,3 +414,41 @@ def is_valid_gram(K, tol=1e-8):
 
     return symmetric, min_eig, valid
 
+# Step 7 - sample_gp_prior
+def sample_gp_prior(K, n_samples, rng, jitter=1e-8):
+    """
+    Draw function samples from a zero-mean Gaussian Process prior.
+
+    Parameters
+    ----------
+    K : array-like, shape (n, n)
+        Gram matrix (covariance matrix).
+    n_samples : int
+        Number of functions to sample.
+    rng : numpy.random.Generator
+        Random number generator.
+    jitter : float, default=1e-8
+        Small diagonal value added for numerical stability.
+
+    Returns
+    -------
+    samples : ndarray, shape (n_samples, n)
+        Each row represents one sampled function.
+    """
+
+    # Convert the Gram matrix to a NumPy array.
+    K = np.asarray(K, dtype=float)
+
+    # Get the number of input points.
+    n = K.shape[0]
+
+    # Step 1: Compute the lower Cholesky factor of K + jitter * I.
+    L = np.linalg.cholesky(K + jitter * np.eye(n))
+
+    # Step 2: Generate standard normal random samples in one call.
+    Z = rng.standard_normal((n, n_samples))
+
+    # Step 3: Transform the samples and transpose to obtain
+    # an output array of shape (n_samples, n).
+    return (L @ Z).T
+
