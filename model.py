@@ -964,3 +964,107 @@ def se_kernel_and_grads(log_params, X):
     # Return the kernel matrix and its gradient matrices.
     return K, [dK_dlog_ell, dK_dlog_sigma_f]
 
+# Step 15 - lml_and_grad
+def lml_and_grad(theta, X, y, kernel_and_grads):
+    """
+    Compute the GP log marginal likelihood and its analytical
+    gradients with respect to log hyperparameters.
+
+    Parameters
+    ----------
+    theta : array-like, shape (M + 1,)
+        Log hyperparameters. The last element is the log noise
+        standard deviation; the remaining elements are kernel
+        log hyperparameters.
+    X : array-like
+        Training inputs.
+    y : array-like, shape (N,)
+        Observed target values.
+    kernel_and_grads : callable
+        Function returning the kernel matrix and its derivatives:
+        K, [dK_1, dK_2, ..., dK_M].
+
+    Returns
+    -------
+    lml : float
+        Log marginal likelihood.
+
+    grad : ndarray, shape (M + 1,)
+        Analytical gradient with respect to log hyperparameters.
+    """
+
+    # Convert inputs into NumPy arrays.
+    theta = np.asarray(theta, dtype=float)
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate hyperparameters.
+    if theta.ndim != 1 or len(theta) < 1:
+        raise ValueError("theta must be a non-empty 1D array.")
+
+    if not np.all(np.isfinite(theta)):
+        raise ValueError("theta must contain finite values.")
+
+    # Number of training observations.
+    N = len(y)
+
+    if N == 0:
+        raise ValueError("At least one training observation is required.")
+
+    # Step 1: Compute the kernel matrix and its derivatives.
+    K, dKs = kernel_and_grads(theta[:-1], X)
+
+    K = np.asarray(K, dtype=float)
+
+    if K.shape != (N, N):
+        raise ValueError("The kernel matrix must have shape (N, N).")
+
+    if len(dKs) != len(theta) - 1:
+        raise ValueError("The number of kernel gradients must match theta.")
+
+    # Step 2: Convert the log noise standard deviation
+    # into the observation noise variance.
+    noise_var = np.exp(2.0 * theta[-1])
+
+    # Step 3: Construct the noisy covariance matrix.
+    K_sigma = K + noise_var * np.eye(N)
+
+    # Step 4: Compute the lower Cholesky factorization.
+    L = np.linalg.cholesky(K_sigma)
+
+    # Step 5: Compute alpha = K_sigma^(-1) @ y
+    # using Cholesky-based linear system solving.
+    alpha = cho_solve((L, True), y)
+
+    # Step 6: Compute the log marginal likelihood.
+    # The Cholesky diagonal gives the log determinant term.
+    lml = (
+        -0.5 * (y @ alpha)
+        - np.sum(np.log(np.diag(L)))
+        - 0.5 * N * np.log(2.0 * np.pi)
+    )
+
+    # Step 7: Compute the inverse covariance matrix
+    # using Cholesky-based solving, without np.linalg.inv().
+    K_inv = cho_solve((L, True), np.eye(N))
+
+    # Step 8: Compute W = alpha @ alpha.T - K_sigma^(-1).
+    W = np.outer(alpha, alpha) - K_inv
+
+    # Step 9: Compute analytical gradients for kernel
+    # hyperparameters.
+    grad = np.empty(len(theta), dtype=float)
+
+    for j, dK in enumerate(dKs):
+        dK = np.asarray(dK, dtype=float)
+
+        if dK.shape != (N, N):
+            raise ValueError("Every kernel gradient must have shape (N, N).")
+
+        grad[j] = 0.5 * np.sum(W * dK)
+
+    # Step 10: Compute the gradient with respect to
+    # log noise standard deviation.
+    grad[-1] = noise_var * np.trace(W)
+
+    return float(lml), grad
+
