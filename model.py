@@ -2451,3 +2451,97 @@ def random_fourier_features(
     # Return the mapping with the sampled frequencies fixed.
     return phi
 
+# Step 25 - rff_gp_predict
+def rff_gp_predict(
+    X,
+    y,
+    Xs,
+    M,
+    length_scale,
+    signal_var,
+    noise_var,
+    rng,
+    kind="trig",
+    orthogonal=False
+):
+    """
+    Approximate Gaussian Process regression using Random Fourier
+    Features and Bayesian Linear Regression.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D)
+        Training inputs.
+    y : array-like, shape (N,)
+        Training target values.
+    Xs : array-like, shape (N_star, D)
+        Test inputs.
+    M : int
+        Number of random features.
+    length_scale : float
+        Squared Exponential kernel length scale.
+    signal_var : float
+        Signal variance of the GP.
+    noise_var : float
+        Observation noise variance.
+    rng : numpy.random.Generator
+        Random number generator.
+    kind : str, default="trig"
+        Feature mapping type: "trig" or "positive".
+    orthogonal : bool, default=False
+        Whether to use orthogonal random features.
+
+    Returns
+    -------
+    mean : ndarray, shape (N_star,)
+        Predictive posterior mean.
+    var : ndarray, shape (N_star,)
+        Predictive latent function variance.
+    """
+
+    # Convert training and test inputs into 2D arrays.
+    X = as_2d(X)
+    Xs = as_2d(Xs)
+
+    # Check input dimensions.
+    if X.shape[1] != Xs.shape[1]:
+        raise ValueError(
+            "X and Xs must have the same number of features."
+        )
+
+    # Determine the input dimensionality.
+    D = X.shape[1]
+
+    # Step 1: Create one random Fourier feature mapping.
+    # The same mapping must be used for training and test inputs.
+    phi = random_fourier_features(
+        D,
+        M,
+        length_scale,
+        rng,
+        kind=kind,
+        orthogonal=orthogonal
+    )
+
+    # Step 2: Transform training and test inputs.
+    Phi = phi(X)
+    Phi_star = phi(Xs)
+
+    # Step 3: Construct the weight prior covariance matrix.
+    # Use the actual feature dimension, which can differ from M
+    # when M is odd and trigonometric features are used.
+    feature_dim = Phi.shape[1]
+
+    Sigma_w = signal_var * np.eye(feature_dim)
+
+    # Step 4: Perform Bayesian Linear Regression in feature space.
+    mean, var = bayes_linreg_predict(
+        Phi,
+        y,
+        Phi_star,
+        Sigma_w,
+        noise_var
+    )
+
+    return mean, var
+

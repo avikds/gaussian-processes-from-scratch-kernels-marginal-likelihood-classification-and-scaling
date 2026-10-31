@@ -34,6 +34,7 @@ python scaffold.py
 - [x] **22.** gpc_predict
 - [x] **23.** iris_gpc_compare
 - [x] **24.** random_fourier_features
+- [x] **25.** rff_gp_predict
 
 ---
 
