@@ -905,3 +905,62 @@ def bayes_linreg_predict(Phi, y, Phi_star, Sigma_w, noise_var):
 
     return mean, var
 
+# Step 14 - se_kernel_and_grads
+def se_kernel_and_grads(log_params, X):
+    """
+    Compute the Squared Exponential kernel matrix and its
+    analytical gradients with respect to log hyperparameters.
+
+    Parameters
+    ----------
+    log_params : array-like, shape (2,)
+        Log hyperparameters:
+        [log_ell, log_sigma_f].
+
+    X : array-like, shape (N, D) or (N,)
+        Training input points.
+
+    Returns
+    -------
+    K : ndarray, shape (N, N)
+        Squared Exponential kernel matrix.
+
+    gradients : list
+        Two gradient matrices:
+        - dK_dlog_ell
+        - dK_dlog_sigma_f
+    """
+
+    # Convert inputs into a 2D array.
+    X = as_2d(X)
+
+    # Extract the log hyperparameters.
+    log_ell, log_sigma_f = np.asarray(log_params, dtype=float)
+
+    # Convert log hyperparameters into positive parameters.
+    ell = np.exp(log_ell)
+    sigma_f = np.exp(log_sigma_f)
+
+    # Signal variance.
+    sf2 = sigma_f ** 2
+
+    # Compute squared Euclidean distances between all input pairs.
+    X_sq = np.sum(X ** 2, axis=1, keepdims=True)
+
+    r2 = X_sq + X_sq.T - 2.0 * (X @ X.T)
+
+    # Clip small negative distances caused by floating-point rounding.
+    r2 = np.maximum(r2, 0.0)
+
+    # Compute the Squared Exponential kernel matrix.
+    K = sf2 * np.exp(-r2 / (2.0 * ell ** 2))
+
+    # Gradient with respect to log length scale.
+    dK_dlog_ell = K * r2 / (ell ** 2)
+
+    # Gradient with respect to log signal standard deviation.
+    dK_dlog_sigma_f = 2.0 * K
+
+    # Return the kernel matrix and its gradient matrices.
+    return K, [dK_dlog_ell, dK_dlog_sigma_f]
+

@@ -23,6 +23,7 @@ python scaffold.py
 - [x] **11.** predictive_scores
 - [x] **12.** nadaraya_watson
 - [x] **13.** bayes_linreg_predict
+- [x] **14.** se_kernel_and_grads
 
 ---
 
