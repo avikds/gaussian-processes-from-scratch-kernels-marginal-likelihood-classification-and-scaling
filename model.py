@@ -1567,3 +1567,184 @@ def seasonal_kernel_and_grads(log_params, X):
 
     return K, dKs
 
+# Step 20 - forecast_comparison
+def forecast_comparison(t, y, split_year=15.0):
+    """
+    Compare a plain SE Gaussian Process with a composite
+    seasonal Gaussian Process for future forecasting.
+
+    Parameters
+    ----------
+    t : array-like, shape (N,)
+        Time points in years.
+    y : array-like, shape (N,)
+        Observed time-series values.
+    split_year : float, default=15.0
+        Training observations satisfy t < split_year.
+        Test observations satisfy t >= split_year.
+
+    Returns
+    -------
+    results : dict
+        Dictionary containing results for both models:
+        - se
+        - composite
+
+        Each model contains:
+        - nll
+        - rmse
+        - coverage95
+        - lml
+        - theta
+        - mean
+    """
+
+    # -----------------------------------------------------
+    # Step 1: Prepare and split the dataset.
+    # -----------------------------------------------------
+
+    t = np.asarray(t, dtype=float).reshape(-1)
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    if len(t) != len(y):
+        raise ValueError("t and y must have the same length.")
+
+    if len(t) == 0:
+        raise ValueError("The input dataset must not be empty.")
+
+    if not np.all(np.isfinite(t)) or not np.all(np.isfinite(y)):
+        raise ValueError("t and y must contain finite values.")
+
+    train_mask = t < split_year
+    test_mask = t >= split_year
+
+    t_train = t[train_mask]
+    y_train = y[train_mask]
+
+    t_test = t[test_mask]
+    y_test = y[test_mask]
+
+    if len(t_train) == 0 or len(t_test) == 0:
+        raise ValueError("Both training and test sets must be non-empty.")
+
+    # Compute the training mean and centre all targets.
+    y_bar = np.mean(y_train)
+
+    y_train_centered = y_train - y_bar
+    y_test_centered = y_test - y_bar
+
+    # Standard deviation of the centred training targets.
+    s = np.std(y_train_centered)
+
+    if s <= 0:
+        raise ValueError("Training targets must have positive standard deviation.")
+
+    # -----------------------------------------------------
+    # Step 2: Fit the plain Squared Exponential GP.
+    # -----------------------------------------------------
+
+    se_theta0 = np.log([5.0, s, 0.5])
+
+    se_theta, se_lml = maximize_lml(
+        se_theta0,
+        t_train,
+        y_train_centered,
+        se_kernel_and_grads
+    )
+
+    # Extract fitted SE hyperparameters.
+    se_length_scale = np.exp(se_theta[0])
+    se_signal_var = np.exp(2.0 * se_theta[1])
+    se_noise_var = np.exp(2.0 * se_theta[2])
+
+    # Construct the fitted SE kernel.
+    def fitted_se_kernel(A, B):
+        return se_kernel(
+            A,
+            B,
+            length_scale=se_length_scale,
+            signal_var=se_signal_var
+        )
+
+    # Predict future observations.
+    se_mu, se_var = gp_predict(
+        t_train,
+        y_train_centered,
+        t_test,
+        fitted_se_kernel,
+        se_noise_var
+    )
+
+    # Score predictions using latent variance plus observation noise.
+    se_scores = predictive_scores(
+        y_test_centered,
+        se_mu,
+        se_var + se_noise_var
+    )
+
+    # -----------------------------------------------------
+    # Step 3: Fit the composite seasonal GP.
+    # -----------------------------------------------------
+
+    composite_theta0 = np.log([
+        10.0, 20.0, 2.0, 30.0, 1.0,
+        1.0, 0.5, 1.0, 0.01, 0.3
+    ])
+
+    composite_theta, composite_lml = maximize_lml(
+        composite_theta0,
+        t_train,
+        y_train_centered,
+        seasonal_kernel_and_grads
+    )
+
+    # Extract fitted observation noise variance.
+    composite_noise_var = np.exp(2.0 * composite_theta[-1])
+
+    # Construct the fitted composite kernel.
+    def fitted_composite_kernel(A, B):
+        return kernel_from_spec(
+            seasonal_spec(composite_theta[:-1]),
+            A,
+            B
+        )
+
+    # Predict future observations.
+    composite_mu, composite_var = gp_predict(
+        t_train,
+        y_train_centered,
+        t_test,
+        fitted_composite_kernel,
+        composite_noise_var
+    )
+
+    # Score predictions using latent variance plus observation noise.
+    composite_scores = predictive_scores(
+        y_test_centered,
+        composite_mu,
+        composite_var + composite_noise_var
+    )
+
+    # -----------------------------------------------------
+    # Step 4: Assemble and return the results.
+    # -----------------------------------------------------
+
+    # Add fitted hyperparameters, LML and predictions
+    # on the original target scale.
+    se_scores.update({
+        "lml": float(se_lml),
+        "theta": se_theta.copy(),
+        "mean": se_mu + y_bar
+    })
+
+    composite_scores.update({
+        "lml": float(composite_lml),
+        "theta": composite_theta.copy(),
+        "mean": composite_mu + y_bar
+    })
+
+    return {
+        "se": se_scores,
+        "composite": composite_scores
+    }
+
