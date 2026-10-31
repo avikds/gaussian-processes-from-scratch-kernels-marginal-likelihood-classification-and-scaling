@@ -2545,3 +2545,204 @@ def rff_gp_predict(
 
     return mean, var
 
+# Step 26 - sparse_gp_predict
+def kernel_diag(kernel, X):
+    """
+    Compute the diagonal of a kernel Gram matrix without
+    constructing the full N x N matrix.
+
+    Parameters
+    ----------
+    kernel : callable
+        Kernel function accepting two input matrices.
+    X : array-like, shape (N, D) or (N,)
+        Input observations.
+
+    Returns
+    -------
+    diag : ndarray, shape (N,)
+        Diagonal entries of the kernel Gram matrix.
+    """
+
+    # Convert inputs into a 2D array.
+    X = as_2d(X)
+
+    # Compute each diagonal entry independently.
+    # This avoids constructing the complete N x N matrix.
+    diag = np.array([
+        kernel(X[i:i+1], X[i:i+1])[0, 0]
+        for i in range(X.shape[0])
+    ], dtype=float)
+
+    return diag
+
+
+def sparse_gp_predict(X, y, Z, Xs, kernel, noise_var, jitter=1e-6):
+    """
+    Compute the predictive mean and variance of an inducing-point
+    sparse Gaussian Process.
+
+    Parameters
+    ----------
+    X : array-like, shape (N, D) or (N,)
+        Training inputs.
+    y : array-like, shape (N,)
+        Training target values.
+    Z : array-like, shape (M, D) or (M,)
+        Inducing points (pseudo-inputs).
+    Xs : array-like, shape (N_star, D) or (N_star,)
+        Test inputs.
+    kernel : callable
+        Kernel function returning Gram matrices.
+    noise_var : float
+        Observation noise variance.
+    jitter : float, default=1e-6
+        Small diagonal value added for numerical stability.
+
+    Returns
+    -------
+    mean : ndarray, shape (N_star,)
+        Sparse GP predictive mean.
+    var : ndarray, shape (N_star,)
+        Sparse GP predictive latent variance.
+    """
+
+    # -----------------------------------------------------
+    # Step 1: Convert inputs into NumPy arrays.
+    # -----------------------------------------------------
+
+    X = as_2d(X)
+    Z = as_2d(Z)
+    Xs = as_2d(Xs)
+
+    y = np.asarray(y, dtype=float).reshape(-1)
+
+    # Validate input dimensions.
+    if X.shape[1] != Z.shape[1] or X.shape[1] != Xs.shape[1]:
+        raise ValueError(
+            "X, Z, and Xs must have the same number of features."
+        )
+
+    if len(y) != X.shape[0]:
+        raise ValueError("The number of targets must match X.")
+
+    if X.shape[0] == 0 or Z.shape[0] == 0:
+        raise ValueError("Training inputs and inducing points must be non-empty.")
+
+    if not np.isfinite(noise_var) or noise_var <= 0:
+        raise ValueError("noise_var must be strictly positive.")
+
+    if not np.isfinite(jitter) or jitter < 0:
+        raise ValueError("jitter must be finite and non-negative.")
+
+    # Number of inducing points.
+    M = Z.shape[0]
+
+    # Standard deviation of observation noise.
+    sigma = np.sqrt(noise_var)
+
+    # -----------------------------------------------------
+    # Step 2: Compute the inducing-point covariance matrix.
+    #
+    # K_ZZ = kernel(Z, Z)
+    # L_Z = chol(K_ZZ + jitter * I)
+    # -----------------------------------------------------
+
+    K_ZZ = kernel(Z, Z)
+
+    L_Z = np.linalg.cholesky(
+        K_ZZ + jitter * np.eye(M)
+    )
+
+    # -----------------------------------------------------
+    # Step 3: Compute the normalized training cross-covariance.
+    #
+    # A = (L_Z \ K_ZX) / sigma
+    # -----------------------------------------------------
+
+    K_ZX = kernel(Z, X)
+
+    A = solve_triangular(
+        L_Z,
+        K_ZX,
+        lower=True
+    ) / sigma
+
+    # A has shape (M, N), not (N, N).
+
+    # -----------------------------------------------------
+    # Step 4: Compute the matrix B and its Cholesky factor.
+    #
+    # B = I + A @ A.T
+    # L_B = chol(B)
+    # -----------------------------------------------------
+
+    B = np.eye(M) + A @ A.T
+
+    L_B = np.linalg.cholesky(B)
+
+    # -----------------------------------------------------
+    # Step 5: Compute the intermediate coefficient vector.
+    #
+    # c = (L_B \ (A @ y)) / sigma
+    # -----------------------------------------------------
+
+    c = solve_triangular(
+        L_B,
+        A @ y,
+        lower=True
+    ) / sigma
+
+    # -----------------------------------------------------
+    # Step 6: Compute test cross-covariance.
+    #
+    # T1 = L_Z \ K_Z*
+    # -----------------------------------------------------
+
+    K_Zs = kernel(Z, Xs)
+
+    T1 = solve_triangular(
+        L_Z,
+        K_Zs,
+        lower=True
+    )
+
+    # -----------------------------------------------------
+    # Step 7: Compute T2.
+    #
+    # T2 = L_B \ T1
+    # -----------------------------------------------------
+
+    T2 = solve_triangular(
+        L_B,
+        T1,
+        lower=True
+    )
+
+    # -----------------------------------------------------
+    # Step 8: Compute the predictive mean.
+    #
+    # mean = T2.T @ c
+    # -----------------------------------------------------
+
+    mean = T2.T @ c
+
+    # -----------------------------------------------------
+    # Step 9: Compute the predictive latent variance.
+    #
+    # var = diag(K**) - sum(T1^2) + sum(T2^2)
+    # -----------------------------------------------------
+
+    Kss_diag = kernel_diag(kernel, Xs)
+
+    var = (
+        Kss_diag
+        - np.sum(T1 ** 2, axis=0)
+        + np.sum(T2 ** 2, axis=0)
+    )
+
+    # Clip tiny negative values caused by floating-point rounding.
+    var = np.maximum(var, 0.0)
+
+    return mean, var
+
