@@ -39,6 +39,37 @@ python scaffold.py
 - [x] **27.** titsias_bound
 - [x] **28.** scaling_showdown
 
----
+## Results
 
-Built on Deep-ML.
+```
+Part 1: kernels and the GP prior
+  SE             Mercer check=True  mean |step| of prior draws=0.0432
+  Matern 1/2     Mercer check=True  mean |step| of prior draws=0.2559
+  Matern 5/2     Mercer check=True  mean |step| of prior draws=0.0505
+  periodic       Mercer check=True  mean |step| of prior draws=0.1036
+  SE x periodic  Mercer check=True  mean |step| of prior draws=0.0955
+  sigmoid 'kernel' tanh(2xx' - 1) passes Mercer: False
+Part 2: exact GP regression on the 20 points of Figure 17.8
+  (l, sf, sy)=(1.0, 1.0, 0.1): log p(y|X)=-12.085 = fit -13.429 + complexity 19.723 + const -18.379
+  (l, sf, sy)=(3.0, 1.16, 0.89): log p(y|X)=-24.382 = fit -3.974 + complexity -2.029 + const -18.379
+  weight space vs function space, max |difference| of means: 6.26e-12
+Part 3: empirical Bayes
+  ML-II on Figure 17.8 data: (l, sf, sy) = [1.022, 1.182, 0.116], log p = -11.594
+  Figure 17.9 optimum: l=1.25 sy=0.108 log p=-6.276 (10 of 12 starts)
+  Figure 17.9 optimum: l=12.69 sy=0.469 log p=-6.762 (2 of 12 starts)
+  marginal-likelihood ratio of the two explanations: 1.63
+Part 4: five-year forecast of the seasonal series
+  se        train log p= -206.60  test NLL=2.355  RMSE=2.179  95% coverage=0.850
+  composite train log p=  -84.60  test NLL=1.321  RMSE=0.868  95% coverage=0.950
+  learned period: 0.9995 years
+Part 5: GP classification of iris setosa vs versicolor by sepal length (Figure 17.10)
+  se        Laplace log p=-43.877  p(versicolor) at [3.0, 4.0, 5.5, 7.0, 8.0]: [0.496, 0.298, 0.567, 0.777, 0.515]
+  se+linear Laplace log p=-35.796  p(versicolor) at [3.0, 4.0, 5.5, 7.0, 8.0]: [0.001, 0.005, 0.598, 0.996, 0.999]
+Part 6: 2000 training points, M = 200
+  hyperparameters (l, sf^2, sy^2): [0.968, 1.782, 0.041]
+  exact     test NLL=-0.1322  RMSE=0.2117  95% coverage=0.936
+  subset    test NLL=-0.0021  RMSE=0.2413  95% coverage=0.948
+  rff       test NLL=0.2868  RMSE=0.2825  95% coverage=0.848
+  inducing  test NLL=-0.1318  RMSE=0.2116  95% coverage=0.936
+  Titsias bound gap: 0.0026 nats per training point
+```
